@@ -7,7 +7,16 @@ const Fawn = require("fawn")
 const task = Fawn.Task()
 
 exports.profile = async (req, res, next) => {
-  const user = await User.findById(req.params.id).select("-password -salt -resetPasswordLink -emailVerifyLink").populate("location")
+  let user
+
+  try {
+    user = await User.findById(req.params.id).select("-password -salt -resetPasswordLink -emailVerifyLink").populate("location")
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
+    })
+  }
+
   if (!user) {
     return res.status(404).json({ error: "User not found with this id" })
   }
@@ -25,7 +34,16 @@ exports.updateProfile = async (req, res) => {
   let profile = req.user
   // password update
   if (req.body.oldPassword && req.body.newPassword) {
-    let user = await User.findByCredentials(profile.email, req.body.oldPassword)
+    let user
+
+    try {
+      user = await User.findByCredentials(profile.email, req.body.oldPassword)
+    } catch (err) {
+      return res.status(500).json({
+        error: "There was some problem on server end, unable to complete request."
+      })
+    }
+
     if (!user) {
       return res.status(403).json({
         error: "Wrong Password."
@@ -34,7 +52,14 @@ exports.updateProfile = async (req, res) => {
     profile.password = req.body.newPassword
   }
   profile = _.extend(profile, req.body)
-  profile = await profile.save()
+
+  try {
+    profile = await profile.save()
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
+    })
+  }
   profile.salt = undefined
   profile.password = undefined
   profile.resetPasswordLink = undefined
@@ -49,13 +74,27 @@ exports.uploadPhoto = async (req, res) => {
     return res.status(400).json({ error: "Image is required." })
   }
   const { filename, path: filepath, destination } = req.file
-  await imageCompressor(filename, 300, filepath, destination, "user")
+
+  try {
+    await imageCompressor(filename, 300, filepath, destination, "user")
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
+    })
+  }
   fs.unlinkSync(filepath) //remove from public/uploads
   // if update then remove old photo
 
   if (profile.photo) fs.unlinkSync(`public/uploads/${profile.photo}`)
   profile.photo = "user/" + filename
-  await profile.save()
+
+  try {
+    await profile.save()
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
+    })
+  }
   res.json({ photo: profile.photo, socialPhoto: profile.socialPhoto })
 }
 
@@ -87,10 +126,18 @@ exports.addAddress = async (req, res) => {
     newAddress.geolocation = geolocation
   }
   newAddress.user = profile._id
-  let user = await User.findById(profile._id)
-  updateuser = user.toObject()
-  updateuser.location.push(newAddress._id)
-  const results = await task.update(user, updateuser).options({ viaSave: true }).save(newAddress).run({ useMongoose: true })
+  let user
+  let results
+  try {
+    user = await User.findById(profile._id)
+    updateuser = user.toObject()
+    updateuser.location.push(newAddress._id)
+    results = await task.update(user, updateuser).options({ viaSave: true }).save(newAddress).run({ useMongoose: true })
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
+    })
+  }
 
   res.json(results[1])
 }
@@ -99,7 +146,16 @@ exports.editAddress = async (req, res) => {
   if (!req.user.location.includes(req.params.address_id)) {
     return res.status(403).json({ error: "Cannot update address." })
   }
-  let address = await Address.findById(req.params.address_id)
+  let address
+
+  try {
+    address = await Address.findById(req.params.address_id)
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
+    })
+  }
+
   if (!address) {
     return res.status(404).json({ error: "Address not found." })
   }
@@ -114,19 +170,44 @@ exports.editAddress = async (req, res) => {
     }
     address.geolocation = geolocation
   }
-  address = await address.save()
+
+  try {
+    address = await address.save()
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
+    })
+  }
   res.json(address)
 }
 
 exports.toggleAddressActiveness = async (req, res) => {
-  let activeAddress = await Address.findOne({ user: req.user._id, isActive: { $ne: null } })
+  let activeAddress
+  try {
+    activeAddress = await Address.findOne({ user: req.user._id, isActive: { $ne: null } })
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
+    })
+  }
+
   if (!activeAddress) {
     return res.status(404).json({ error: "Current active address not found." })
   }
   if (activeAddress.label == req.query.label) {
     return res.json({ address: activeAddress })
   }
-  let tobeActiveAddress = await Address.findOne({ user: req.user._id, label: req.query.label })
+
+  let tobeActiveAddress
+
+  try {
+    tobeActiveAddress = await Address.findOne({ user: req.user._id, label: req.query.label })
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
+    })
+  }
+
   if (!tobeActiveAddress) {
     return res.status(404).json({ error: `Address labelled ${req.query.label} not found.` })
   }
@@ -134,7 +215,15 @@ exports.toggleAddressActiveness = async (req, res) => {
   let updateToBeActiveAddress = tobeActiveAddress.toObject()
   updateActiveAddress.isActive = null
   updateToBeActiveAddress.isActive = Date.now()
-  const results = await task.update(tobeActiveAddress, updateToBeActiveAddress).options({ viaSave: true }).update(activeAddress, updateActiveAddress).options({ viaSave: true }).run({ useMongoose: true })
+
+  let results
+  try {
+    results = await task.update(tobeActiveAddress, updateToBeActiveAddress).options({ viaSave: true }).update(activeAddress, updateActiveAddress).options({ viaSave: true }).run({ useMongoose: true })
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
+    })
+  }
   res.json({ address: results[0] })
 }
 
