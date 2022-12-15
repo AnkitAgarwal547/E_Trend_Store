@@ -11,27 +11,36 @@ const { fileRemover, imageCompressor } = require("../middleware/helpers")
 const task = Fawn.Task()
 
 exports.product = async (req, res, next) => {
-  const product = await Product.findOne({ slug: req.params.p_slug })
-    .populate("images", "-createdAt -updatedAt -__v")
-    .populate("soldBy", "shopName address holidayMode")
-    .populate("brand")
-    .populate({
-      path: "category",
-      populate: {
-        path: "parent",
-        model: "category",
+  let product
+  try {
+    product = await Product.findOne({ slug: req.params.p_slug })
+      .populate("images", "-createdAt -updatedAt -__v")
+      .populate("soldBy", "shopName address holidayMode")
+      .populate("brand")
+      .populate({
+        path: "category",
         populate: {
           path: "parent",
-          model: "category"
+          model: "category",
+          populate: {
+            path: "parent",
+            model: "category"
+          }
         }
-      }
+      })
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
     })
+  }
+
   if (!product) {
     return res.status(404).json({ error: "Product not found." })
   }
   req.product = product
   next()
 }
+
 exports.getProduct = async (req, res) => {
   let role = (req.authAdmin && req.authAdmin.role) || "user"
   if (role === "user" && (!req.product.isVerified || req.product.isDeleted)) {
@@ -43,13 +52,35 @@ exports.getProduct = async (req, res) => {
   if (role === "user") {
     req.product.viewsCount += 1
   }
-  await req.product.save()
+
+  try {
+    await req.product.save()
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
+    })
+  }
+
   //ratings of this product
   const product = req.product.toObject()
-  product.stars = await getRatingInfo(req.product)
+  try {
+    product.stars = await getRatingInfo(req.product)
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
+    })
+  }
+
   //user's action on this product
   if (req.authUser) {
-    const { hasBought, hasOnCart, hasOnWishlist, hasReviewed } = await userHas(req.product, req.authUser, "product")
+    try {
+      var { hasBought, hasOnCart, hasOnWishlist, hasReviewed } = await userHas(req.product, req.authUser, "product")
+    } catch (err) {
+      return res.status(500).json({
+        error: "There was some problem on server end, unable to complete request."
+      })
+    }
+
     product.hasOnCart = hasOnCart
     product.hasBought = hasBought
     product.hasOnWishlist = hasOnWishlist
@@ -77,13 +108,28 @@ exports.createProduct = async (req, res) => {
     updataImage.productLink = newProduct._id
     task.update(i, updataImage).options({ viaSave: true })
   })
-  await task.save(newProduct).run({ useMongoose: true })
+
+  try {
+    await task.save(newProduct).run({ useMongoose: true })
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
+    })
+  }
 
   return res.json(newProduct)
 }
 
 exports.deleteProduct = async (req, res) => {
-  const product = await Product.findOne({ slug: req.params.p_slug })
+  let product
+  try {
+    product = await Product.findOne({ slug: req.params.p_slug })
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
+    })
+  }
+
   if (!product) {
     return res.status(404).json({ error: "Product not found" })
   }
@@ -91,7 +137,15 @@ exports.deleteProduct = async (req, res) => {
   product.isVerified = null
   product.isFeatured = null
   product.isRejected = null
-  await product.save()
+
+  try {
+    await product.save()
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
+    })
+  }
+
   res.json(product)
 }
 
@@ -105,18 +159,27 @@ exports.productImages = async (req, res) => {
     fileRemover(files)
     return res.status(403).json({ error: "Admin is not verified" })
   }
-  let images = req.files.map(async file => {
-    const image = new ProductImages()
-    const { filename, path: filepath, destination } = file
-    image.thumbnail = await imageCompressor(filename, 80, filepath, destination, "productThumbnail")
-    image.medium = await imageCompressor(filename, 540, filepath, destination, "productMedium")
-    image.large = await imageCompressor(filename, 800, filepath, destination, "productLarge")
-    const Path = `public/uploads/${filename}`
-    files.push(Path)
-    // fs.unlinkSync(Path);
-    return await image.save()
-  })
-  images = await Promise.all(images)
+  let images
+
+  try {
+    images = req.files.map(async file => {
+      const image = new ProductImages()
+      const { filename, path: filepath, destination } = file
+      image.thumbnail = await imageCompressor(filename, 80, filepath, destination, "productThumbnail")
+      image.medium = await imageCompressor(filename, 540, filepath, destination, "productMedium")
+      image.large = await imageCompressor(filename, 800, filepath, destination, "productLarge")
+      const Path = `public/uploads/${filename}`
+      files.push(Path)
+      // fs.unlinkSync(Path);
+      return await image.save()
+    })
+    images = await Promise.all(images)
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
+    })
+  }
+
   fileRemover(files)
   res.json(images)
 }
@@ -137,14 +200,30 @@ exports.deleteImage = async (req, res) => {
   if (!imageFound) {
     return res.status(404).json({ error: "Image not found" })
   }
-  await task.update(product, updateProduct).options({ viaSave: true }).remove(ProductImages, { _id: req.query.image_id }).run({ useMongoose: true })
+
+  try {
+    await task.update(product, updateProduct).options({ viaSave: true }).remove(ProductImages, { _id: req.query.image_id }).run({ useMongoose: true })
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
+    })
+  }
+
   let files = [`public/uploads/${imageFound.thumbnail}`, `public/uploads/${imageFound.medium}`, `public/uploads/${imageFound.large}`]
   fileRemover(files)
   res.json(updateProduct.images)
 }
 
 exports.deleteImageById = async (req, res) => {
-  let image = await ProductImages.findByIdAndRemove(req.query.image_id)
+  let image
+  try {
+    image = await ProductImages.findByIdAndRemove(req.query.image_id)
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
+    })
+  }
+
   let files = [`public/uploads/${image.thumbnail}`, `public/uploads/${image.medium}`, `public/uploads/${image.large}`]
   fileRemover(files)
   res.json(image)
@@ -157,7 +236,15 @@ exports.updateProduct = async (req, res) => {
   }
   product = _.extend(product, req.body)
   product.isRejected = null
-  await product.save()
+
+  try {
+    await product.save()
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
+    })
+  }
+
   res.json(product)
 }
 
@@ -196,14 +283,22 @@ exports.getProducts = async (req, res) => {
       ...query,
       quantity: 0
     }
-  let products = await Product.find(query)
-    .populate("category", "displayName slug")
-    .populate("brand", "brandName slug")
-    .populate("images", "-createdAt -updatedAt -__v")
-    .skip(perPage * page - perPage)
-    .limit(perPage)
-    .lean()
-    .sort(sortFactor)
+  let products
+
+  try {
+    products = await Product.find(query)
+      .populate("category", "displayName slug")
+      .populate("brand", "brandName slug")
+      .populate("images", "-createdAt -updatedAt -__v")
+      .skip(perPage * page - perPage)
+      .limit(perPage)
+      .lean()
+      .sort(sortFactor)
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
+    })
+  }
   const totalCount = await Product.countDocuments(query)
   res.json({ products, totalCount })
 }
@@ -239,24 +334,34 @@ exports.minedProducts = async (req, res) => {
   } else {
     return res.status(403).json({ error: "Invalid keyword." })
   }
-  let products = await Product.find(query)
-    .populate("category", "displayName slug")
-    .populate("brand", "brandName slug")
-    .populate("images", "-createdAt -updatedAt -__v")
-    .skip(perPage * page - perPage)
-    .limit(perPage)
-    .lean()
-    .sort(sortFactor)
 
-  let totalCount = await Product.countDocuments(query)
-  if (req.authUser) {
-    products = products.map(async p => {
-      const { hasOnCart, hasOnWishlist } = await userHas(p, req.authUser, "products")
-      ;(p.hasOnCart = hasOnCart), (p.hasOnWishlist = hasOnWishlist)
-      return p
+  let products
+  let totalCount
+  try {
+    products = await Product.find(query)
+      .populate("category", "displayName slug")
+      .populate("brand", "brandName slug")
+      .populate("images", "-createdAt -updatedAt -__v")
+      .skip(perPage * page - perPage)
+      .limit(perPage)
+      .lean()
+      .sort(sortFactor)
+
+    totalCount = await Product.countDocuments(query)
+    if (req.authUser) {
+      products = products.map(async p => {
+        const { hasOnCart, hasOnWishlist } = await userHas(p, req.authUser, "products")
+        ;(p.hasOnCart = hasOnCart), (p.hasOnWishlist = hasOnWishlist)
+        return p
+      })
+      products = await Promise.all(products)
+    }
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
     })
-    products = await Promise.all(products)
   }
+
   res.json({ products, totalCount })
 }
 exports.forYouProducts = async (req, res) => {
@@ -267,20 +372,16 @@ exports.forYouProducts = async (req, res) => {
   if (createdAt && (createdAt === "asc" || createdAt === "desc")) sortFactor = { createdAt }
   if (updatedAt && (updatedAt === "asc" || updatedAt === "desc")) sortFactor = { updatedAt }
   if (price && (price === "asc" || price === "desc")) sortFactor = { price: price === "asc" ? 1 : -1 }
-  const orders = await Order.find({ user: req.user._id })
-    .select("-_id product")
-    .populate({
-      path: "product",
-      select: "-_id category",
-      populate: {
-        path: "category",
-        model: "category",
-        select: "_id ",
-        match: {
-          isDisabled: null
-        },
+
+  let orders
+  try {
+    orders = await Order.find({ user: req.user._id })
+      .select("-_id product")
+      .populate({
+        path: "product",
+        select: "-_id category",
         populate: {
-          path: "parent",
+          path: "category",
           model: "category",
           select: "_id ",
           match: {
@@ -292,11 +393,24 @@ exports.forYouProducts = async (req, res) => {
             select: "_id ",
             match: {
               isDisabled: null
+            },
+            populate: {
+              path: "parent",
+              model: "category",
+              select: "_id ",
+              match: {
+                isDisabled: null
+              }
             }
           }
         }
-      }
+      })
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
     })
+  }
+
   let categories = []
   orders.forEach(o => {
     o.product.category.forEach(cat => {
@@ -316,34 +430,50 @@ exports.forYouProducts = async (req, res) => {
       availableDistricts: { $in: req.header("district") }
     }
   }
+  let products
+  let totalCount
+  try {
+    products = await Product.find(query)
+      .populate("category", "displayName slug")
+      .populate("brand", "brandName slug")
+      .populate("images", "-createdAt -updatedAt -__v")
+      .skip(perPage * page - perPage)
+      .limit(perPage)
+      .lean()
+      .sort(sortFactor)
+    totalCount = await Product.countDocuments(query)
 
-  let products = await Product.find(query)
-    .populate("category", "displayName slug")
-    .populate("brand", "brandName slug")
-    .populate("images", "-createdAt -updatedAt -__v")
-    .skip(perPage * page - perPage)
-    .limit(perPage)
-    .lean()
-    .sort(sortFactor)
-  const totalCount = await Product.countDocuments(query)
+    //user's action on each product
 
-  //user's action on each product
+    products = products.map(async p => {
+      //user's action on this product
+      const { hasOnCart, hasOnWishlist } = await userHas(p, req.user, "products")
+      ;(p.hasOnCart = hasOnCart), (p.hasOnWishlist = hasOnWishlist)
+      return p
+    })
+    products = await Promise.all(products)
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
+    })
+  }
 
-  products = products.map(async p => {
-    //user's action on this product
-    const { hasOnCart, hasOnWishlist } = await userHas(p, req.user, "products")
-    ;(p.hasOnCart = hasOnCart), (p.hasOnWishlist = hasOnWishlist)
-    return p
-  })
-  products = await Promise.all(products)
   res.json({ products, totalCount })
 }
 
 exports.suggestKeywords = async (req, res) => {
   let limits = +req.query.limits || 5
-  let suggestedKeywords = await SuggestKeywords.find({ keyword: { $regex: req.query.keyword || "", $options: "i" }, isDeleted: null })
-    .select("-_id keyword")
-    .limit(limits)
+  let suggestedKeywords
+
+  try {
+    suggestedKeywords = await SuggestKeywords.find({ keyword: { $regex: req.query.keyword || "", $options: "i" }, isDeleted: null })
+      .select("-_id keyword")
+      .limit(limits)
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
+    })
+  }
   suggestedKeywords = suggestedKeywords.map(s => s.keyword)
   res.json(suggestedKeywords)
 }
@@ -359,10 +489,17 @@ exports.searchProducts = async (req, res) => {
   let { keyword = "", brands, max_price, min_price, sizes, ratings, colors, warranties, weights, cat_id } = req.body
   let categories
   if (cat_id) {
-    categories = await Category.find({
-      $or: [{ _id: cat_id }, { parent: cat_id }],
-      isDisabled: null
-    })
+    try {
+      categories = await Category.find({
+        $or: [{ _id: cat_id }, { parent: cat_id }],
+        isDisabled: null
+      })
+    } catch (err) {
+      return res.status(500).json({
+        error: "There was some problem on server end, unable to complete request."
+      })
+    }
+
     if (!categories.length) {
       return res.status(404).json({ error: "Categories not found." })
     }
@@ -396,25 +533,35 @@ exports.searchProducts = async (req, res) => {
   if (req.header("district")) {
     searchingFactor.availableDistricts = { $in: req.header("district") }
   }
-  let products = await Product.find(searchingFactor)
-    .populate("category", "displayName slug")
-    .populate("brand", "brandName slug")
-    .populate("images", "-createdAt -updatedAt -_v")
-    .skip(perPage * page - perPage)
-    .limit(perPage)
-    .lean()
-    .sort(sortFactor)
-  let totalCount = await Product.countDocuments(searchingFactor)
-  //user's action on each product
-  if (req.authUser) {
-    products = products.map(async p => {
-      //user's action on this product
-      const { hasOnCart, hasOnWishlist } = await userHas(p, req.authUser, "products")
-      ;(p.hasOnCart = hasOnCart), (p.hasOnWishlist = hasOnWishlist)
-      return p
+
+  let products
+  let totalCount
+  try {
+    products = await Product.find(searchingFactor)
+      .populate("category", "displayName slug")
+      .populate("brand", "brandName slug")
+      .populate("images", "-createdAt -updatedAt -_v")
+      .skip(perPage * page - perPage)
+      .limit(perPage)
+      .lean()
+      .sort(sortFactor)
+    totalCount = await Product.countDocuments(searchingFactor)
+    //user's action on each product
+    if (req.authUser) {
+      products = products.map(async p => {
+        //user's action on this product
+        const { hasOnCart, hasOnWishlist } = await userHas(p, req.authUser, "products")
+        ;(p.hasOnCart = hasOnCart), (p.hasOnWishlist = hasOnWishlist)
+        return p
+      })
+      products = await Promise.all(products)
+    }
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
     })
-    products = await Promise.all(products)
   }
+
   res.json({ products, totalCount })
 }
 
@@ -426,10 +573,20 @@ exports.getProductsByCategory = async (req, res) => {
   if (createdAt && (createdAt === "asc" || createdAt === "desc")) sortFactor = { createdAt }
   if (updatedAt && (updatedAt === "asc" || updatedAt === "desc")) sortFactor = { updatedAt }
   if (price && (price === "asc" || price === "desc")) sortFactor = { price: price === "asc" ? 1 : -1 }
-  let categories = await Category.find({
-    $or: [{ slug: req.query.cat_slug }, { parent: req.query.cat_id }],
-    isDisabled: null
-  })
+
+  let categories
+
+  try {
+    categories = await Category.find({
+      $or: [{ slug: req.query.cat_slug }, { parent: req.query.cat_id }],
+      isDisabled: null
+    })
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
+    })
+  }
+
   if (!categories.length) {
     return res.status(404).json({ error: "Categories not found" })
   }
@@ -445,24 +602,34 @@ exports.getProductsByCategory = async (req, res) => {
     }
   }
   categories = categories.map(c => c._id.toString())
-  let products = await Product.find(query)
-    .populate("category", "displayName slug")
-    .populate("brand", "brandName slug")
-    .populate("images", "-createdAt -updatedAt -__v")
-    .skip(perPage * page - perPage)
-    .limit(perPage)
-    .lean()
-    .sort(sortFactor)
-  const totalCount = await Product.countDocuments(query)
 
-  if (req.authUser) {
-    products = products.map(async p => {
-      const { hasOnCart, hasOnWishlist } = await userHas(p, req.authUser, "products")
-      ;(p.hasOnCart = hasOnCart), (p.hasOnWishlist = hasOnWishlist)
-      return p
+  let products
+  let totalCount
+  try {
+    products = await Product.find(query)
+      .populate("category", "displayName slug")
+      .populate("brand", "brandName slug")
+      .populate("images", "-createdAt -updatedAt -__v")
+      .skip(perPage * page - perPage)
+      .limit(perPage)
+      .lean()
+      .sort(sortFactor)
+    totalCount = await Product.countDocuments(query)
+
+    if (req.authUser) {
+      products = products.map(async p => {
+        const { hasOnCart, hasOnWishlist } = await userHas(p, req.authUser, "products")
+        ;(p.hasOnCart = hasOnCart), (p.hasOnWishlist = hasOnWishlist)
+        return p
+      })
+      products = await Promise.all(products)
+    }
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
     })
-    products = await Promise.all(products)
   }
+
   res.json({ products, totalCount })
 }
 
@@ -507,46 +674,75 @@ exports.generateFilter = async (req, res) => {
     filters.prices = minmax(min_price, max_price)
     return filters
   }
+
   if (req.query.keyword) {
     let products
     let sortFactor = { createdAt: "desc" }
     if (req.query.keyword === "latest") {
-      products = await Product.find({
-        isVerified: { $ne: null },
-        isDeleted: null
-      })
-        .limit(50)
-        .sort(sortFactor)
-        .populate("brand", "brandName slug")
-        .select("-_id brand warranty size color weight price")
+      try {
+        products = await Product.find({
+          isVerified: { $ne: null },
+          isDeleted: null
+        })
+          .limit(50)
+          .sort(sortFactor)
+          .populate("brand", "brandName slug")
+          .select("-_id brand warranty size color weight price")
+      } catch (err) {
+        return res.status(500).json({
+          error: "There was some problem on server end, unable to complete request."
+        })
+      }
+
       let generatedFilters = filterGenerate(products)
       return res.json(generatedFilters)
     }
-    products = await Product.find({
-      $or: [{ name: { $regex: req.query.keyword, $options: "i" } }, { tags: { $regex: req.query.keyword, $options: "i" } }],
-      isVerified: { $ne: null },
-      isDeleted: null
-    })
-      .populate("brand", "brandName slug")
-      .select("-_id brand warranty size color weight price")
+
+    try {
+      products = await Product.find({
+        $or: [{ name: { $regex: req.query.keyword, $options: "i" } }, { tags: { $regex: req.query.keyword, $options: "i" } }],
+        isVerified: { $ne: null },
+        isDeleted: null
+      })
+        .populate("brand", "brandName slug")
+        .select("-_id brand warranty size color weight price")
+    } catch (err) {
+      return res.status(500).json({
+        error: "There was some problem on server end, unable to complete request."
+      })
+    }
     let generatedFilters = filterGenerate(products)
     return res.json(generatedFilters)
   } else {
-    let categories = await Category.find({
-      $or: [{ slug: req.query.cat_slug }, { parent: req.query.cat_id }],
-      isDisabled: null
-    })
+    let categories
+    try {
+      categories = await Category.find({
+        $or: [{ slug: req.query.cat_slug }, { parent: req.query.cat_id }],
+        isDisabled: null
+      })
+    } catch (err) {
+      return res.status(500).json({
+        error: "There was some problem on server end, unable to complete request."
+      })
+    }
     if (!categories.length) {
       return res.status(404).json({ error: "Category not found. Cannot generate filter." })
     }
     categories = categories.map(c => c._id.toString())
-    const products = await Product.find({
-      category: { $in: categories },
-      isVerified: { $ne: null },
-      isDeleted: null
-    })
-      .populate("brand", "brandName slug")
-      .select("-_id brand warranty size color weight price")
+    let products
+    try {
+      products = await Product.find({
+        category: { $in: categories },
+        isVerified: { $ne: null },
+        isDeleted: null
+      })
+        .populate("brand", "brandName slug")
+        .select("-_id brand warranty size color weight price")
+    } catch (err) {
+      return res.status(500).json({
+        error: "There was some problem on server end, unable to complete request."
+      })
+    }
     let generatedFilters = filterGenerate(products)
     return res.json(generatedFilters)
   }
