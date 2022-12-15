@@ -8,7 +8,14 @@ const crypto = require("crypto")
 const RefreshToken = require("../models/RefereshToken")
 
 exports.signup = async (req, res) => {
-  let adminExists = await Admin.findOne({ email: req.body.email })
+  let adminExists
+  try {
+    adminExists = await Admin.findOne({ email: req.body.email })
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
+    })
+  }
   if (adminExists)
     return res.status(403).json({
       error: "Email is taken!"
@@ -16,7 +23,14 @@ exports.signup = async (req, res) => {
   const token = jwt.sign({ email: req.body.email }, process.env.JWT_EMAIL_VERIFICATION_KEY, { expiresIn: process.env.EMAIL_TOKEN_EXPIRE_TIME })
   // req.body.emailVerifyLink = token
   let admin = new Admin(req.body)
-  await admin.save()
+
+  try {
+    await admin.save()
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
+    })
+  }
   const mailingData = {
     from: "Ecom",
     to: admin.email,
@@ -32,20 +46,45 @@ exports.signup = async (req, res) => {
 // verify email link
 exports.emailverify = async (req, res) => {
   const { token } = req.query
-  let admin = await Admin.findOne({ emailVerifyLink: token })
+  let admin
+  try {
+    admin = await Admin.findOne({ emailVerifyLink: token })
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
+    })
+  }
+
   if (!admin || (admin && !admin.emailVerifyLink))
     return res.status(401).json({
       error: "Token is invalid!"
     })
   admin.emailVerifyLink = ""
   admin.updated = Date.now()
-  await admin.save()
+
+  try {
+    await admin.save()
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
+    })
+  }
+
   res.status(201).json({ msg: "Successfully signup!" })
 }
 
 exports.signin = async (req, res) => {
   const { email, password } = req.body
-  let admin = await Admin.findByCredentials(email, password)
+
+  let admin
+  try {
+    admin = await Admin.findByCredentials(email, password)
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
+    })
+  }
+
   if (!admin) {
     return res.status(404).json({
       error: "Email or password is invalid."
@@ -74,12 +113,28 @@ exports.signin = async (req, res) => {
   }
   refreshToken = new RefreshToken(refreshToken)
 
-  await refreshToken.save()
+  try {
+    await refreshToken.save()
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
+    })
+  }
+
   return res.json({ accessToken, refreshToken: refreshToken.refreshToken })
 }
 exports.refreshToken = async (req, res) => {
   try {
-    let refreshToken = await RefreshToken.findOne({ refreshToken: req.body.refreshToken, userIP: req.ip })
+    let refreshToken
+
+    try {
+      refreshToken = await RefreshToken.findOne({ refreshToken: req.body.refreshToken, userIP: req.ip })
+    } catch (err) {
+      return res.status(500).json({
+        error: "There was some problem on server end, unable to complete request."
+      })
+    }
+
     if (!refreshToken) return res.status(401).json({ error: "Invalid refreshToken" })
     let tokenData = jwt.verify(refreshToken.refreshToken, process.env.REFRESH_TOKEN_KEY)
     if (tokenData.role !== "admin" && tokenData.role !== "superadmin") {
@@ -93,7 +148,14 @@ exports.refreshToken = async (req, res) => {
     }
     const accessToken = jwt.sign(payload, process.env.JWT_SIGNIN_KEY, { expiresIn: process.env.SIGNIN_EXPIRE_TIME })
     refreshToken.refreshToken = jwt.sign(payload, process.env.REFRESH_TOKEN_KEY, { expiresIn: process.env.REFRESH_TOKEN_EXPIRE })
-    await refreshToken.save()
+
+    try {
+      await refreshToken.save()
+    } catch (err) {
+      return res.status(500).json({
+        error: "There was some problem on server end, unable to complete request."
+      })
+    }
 
     return res.json({ accessToken, refreshToken: refreshToken.refreshToken })
   } catch (error) {
@@ -108,15 +170,38 @@ exports.loadMe = async (req, res) => {
       user: req.admin._id,
       socketId: socket.id
     })
-    let notificationObjOfAdmin = await Notification.findOne({ admin: req.admin._id })
+    let notificationObjOfAdmin
+
+    try {
+      notificationObjOfAdmin = await Notification.findOne({ admin: req.admin._id })
+    } catch (err) {
+      return res.status(500).json({
+        error: "There was some problem on server end, unable to complete request."
+      })
+    }
+
     socket.emit("tx", { hello: "world" })
     if (notificationObjOfAdmin) {
       socket.emit("notification", { noOfUnseen: notificationObjOfAdmin.noOfUnseen })
     }
-    await newSocketMapping.save()
+
+    try {
+      await newSocketMapping.save()
+    } catch (err) {
+      return res.status(500).json({
+        error: "There was some problem on server end, unable to complete request."
+      })
+    }
+
     socket.on("disconnect", async () => {
-      await SocketMapping.findOneAndRemove({ socketId: socket.id })
-      console.log("user disconnected")
+      try {
+        await SocketMapping.findOneAndRemove({ socketId: socket.id })
+      } catch (err) {
+        return res.status(500).json({
+          error: "There was some problem on server end, unable to complete request."
+        })
+      }
+      // console.log("user disconnected")
     })
   })
   res.json({ admin: req.admin })
@@ -127,7 +212,16 @@ exports.forgotPassword = async (req, res) => {
   if (!req.body.email) return res.status(400).json({ error: "No Email in request body" })
 
   const { email } = req.body
-  const admin = await Admin.findOne({ email })
+  let admin
+
+  try {
+    admin = await Admin.findOne({ email })
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
+    })
+  }
+
   if (!admin)
     return res.status(404).json({
       error: "Admin with that email does not exist!"
@@ -142,8 +236,22 @@ exports.forgotPassword = async (req, res) => {
                     <a href="${process.env.ADMIN_CRM_ROUTE}/reset-password?token=${token}">Click me to reset your password</a>`
   }
 
-  await admin.updateOne({ resetPasswordLink: token })
-  await sendEmail(mailingData)
+  try {
+    await admin.updateOne({ resetPasswordLink: token })
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
+    })
+  }
+
+  try {
+    await sendEmail(mailingData)
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
+    })
+  }
+
   res.status(200).json({
     msg: `Email has been sent to ${email}. Follow the instructions to reset your password.`
   })
@@ -152,7 +260,16 @@ exports.forgotPassword = async (req, res) => {
 exports.resetPassword = async (req, res) => {
   const { resetPasswordLink, newPassword } = req.body
 
-  let admin = await Admin.findOne({ resetPasswordLink })
+  let admin
+
+  try {
+    admin = await Admin.findOne({ resetPasswordLink })
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
+    })
+  }
+
   // if err or no admin
   if (!admin || (admin && !admin.resetPasswordLink))
     return res.status(404).json({
@@ -167,7 +284,14 @@ exports.resetPassword = async (req, res) => {
   admin = _.extend(admin, updatedFields)
   admin.updated = Date.now()
 
-  await admin.save()
+  try {
+    await admin.save()
+  } catch (err) {
+    return res.status(500).json({
+      error: "There was some problem on server end, unable to complete request."
+    })
+  }
+
   res.json({
     msg: `Great! Now you can login with your new password.`
   })
@@ -251,7 +375,16 @@ exports.checkAdminSignin = async (req, res, next) => {
     if (admin.error === "jwt expired") {
       return res.json(admin) //{error:'jwt expired'}
     }
-    const foundUser = await Admin.findById(admin._id).select("name role")
+
+    let foundUser
+    try {
+      foundUser = await Admin.findById(admin._id).select("name role")
+    } catch (err) {
+      return res.status(500).json({
+        error: "There was some problem on server end, unable to complete request."
+      })
+    }
+
     if (foundUser) {
       if (!foundUser.isBlocked) {
         req.authAdmin = foundUser
